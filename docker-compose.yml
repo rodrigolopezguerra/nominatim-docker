@@ -1,0 +1,54 @@
+services:
+  postgis:
+    image: postgis/postgis:15-3.3
+    container_name: postgis_db
+    restart: always
+    environment:
+      POSTGRES_USER: nominatim
+      POSTGRES_PASSWORD: nominatim
+      POSTGRES_DB: nominatim
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nominatim"]
+      interval: 10s
+      retries: 5
+      start_period: 10s
+
+  nominatim:
+    image: mediagis/nominatim:4.1
+    container_name: nominatim
+    depends_on:
+      postgis:
+        condition: service_healthy
+    restart: always
+    environment:
+      PBF_URL: "https://download.geofabrik.de/north-america/mexico-latest.osm.pbf"
+      POSTGRES_HOST: postgis
+      POSTGRES_DB: nominatim
+      POSTGRES_USER: nominatim
+      POSTGRES_PASSWORD: nominatim
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 30s
+      retries: 5
+      start_period: 30s
+
+  db_initializer:
+    image: postgis/postgis:15-3.3
+    container_name: db_initializer
+    depends_on:
+      postgis:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "Esperando a que PostgreSQL esté listo..."
+        until pg_isready -h postgis -U nominatim; do
+          sleep 2;
+        done
+        echo "PostgreSQL está listo. Creando base de datos..."
+        PGPASSWORD=nominatim createdb -h postgis -U nominatim nominatim
+        echo "Base de datos creada con éxito."
